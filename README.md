@@ -1,3 +1,5 @@
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true});</script>
 # spring-basic
 스프링 기초
 
@@ -616,11 +618,13 @@ public class MemberServiceImpl implements MemberService{
 - **관심사의 분리 :** 객체를 생성하고 연결하는 역할과 실행하는 역할이 명확히 분리되었다.
 
 **그림-회원 객체 인스턴스 다이어그램**
+
 ```mermaid
     graph LR;
     A([appConfig]) -.->|2. 생성 + 주입 = MemoryMemberRepository x001|B([MemberServiceImpl])
     A -.->|1.생성| C([MemoryMemberRepository])
 ```
+
 - ```appConfig```객체는```memoryMemberRepository```객체를 생성하고 그 참조값을 ```memberServiceImpl```을
 생성하면서 생성자로 전달한다.
   
