@@ -554,9 +554,8 @@ DIP를 지킨 것 같은데?
 - DIP를 위반하지 않도록 인터페이스에만 의존하도록 의존관계를 변경하면 된다. 
 
 **인터페이스에만 의존하도록 설계를 변경하자**
-```java
-    private DiscountPolicy discountPolicy;
-```
+``` private DiscountPolicy discountPolicy;```
+
 - 인터페이스에만 의존하도록 설계와 코드를 변경했다.
 - **그런데 구현체가 없는데 어떻게 코드를 실행할 수 있을까?**
 - 실제 실행을 해보면 NPE(Null Pointer exception)가 발생한다.
@@ -684,12 +683,15 @@ public class OrderServiceImpl implements OrderService{
 
 **테스트 코드 오류 수정**
 ```java
-    @BeforeEach
-    public void beforeEach(){
-        AppConfig appConfig = new AppConfig();
-        memberService = appConfig.memberService();
-        orderService = appConfig.orderService();
-    }
+class Test{
+  @BeforeEach
+  public void beforeEach(){
+    AppConfig appConfig = new AppConfig();
+    memberService = appConfig.memberService();
+    orderService = appConfig.orderService();
+  }
+}
+    
 ```
 
 ### AppConfig 리펙터링
@@ -833,3 +835,291 @@ public class AppConfig {
 - 기존에는 개발자가 직접 자바코드로 모든 것을 했다면 이제부터는 스프링 컨테이너에 객체를 스프링 빈으로 등록하고,
 스프링 컨테이너에서 스프링 빈을 찾아서 사용하도록 변경되었다.
   
+
+## 스프링 컨테이너와 스프링 빈
+
+### 목차
+[4. 스프링 컨테이너와 스프링 빈 - 스프링 컨테이너 생성](#스프링-컨테이너-생성)
+
+[4. 스프링 컨테이너와 스프링 빈 - 컨테이너에 등록된 모든 빈 조회](#컨테이너에-등록된-모든-빈-조회)
+
+[4. 스프링 컨테이너와 스프링 빈 - 스프링 빈 조회 - 기본](#스프링-빈-조회-기본)
+
+[4. 스프링 컨테이너와 스프링 빈 - 스프링 빈 조회 - 동일한 타입이 둘 이상](#스프링-빈-조회-동일한-동일한-타입이-둘-이상)
+
+### 스프링 컨테이너 생성
+스프링 컨테이너가 생성되는 과정을 알아보자 
+
+```java
+// 스프링 컨테이너 생성
+class Test{
+  ApplicationContext applicationContext = new AnnotationConfigApplicationContext(AppConfig.class);    
+}
+```
+- ```ApplicationContext```를 스프링 컨테이라 한다.
+- ```ApplicationContext```는 인터페이스이다. 
+- 스프링 컨테이너는 XML 기반으로 만들 수 있고, 애노테이션 기반의 자바 설정 클래스로 만들 수 있다.
+- 직전에 ```AppConfig```를 사용했던 방식이 애노테이션 기반의 자바 설정 클래스로 스프링 컨테이너를 만든 것이.
+- 자바 설정 클래스를 기반으로 스프링 컨테이너 ```ApplicationContext```를 만들어 보자
+  + ```new AnnotationConfigApplicationContext(AppConfig.class)```;
+  + 이 클래스는 ```ApplicationContext``` 인터페이스의 구현체이다
+  
+> 참고 : 더 정확히는 스프링 컨테이너를 부를 때 ```BeanFactory```, ```ApplicationContext```로 구분해서 이야기 한다. 
+> ```BeanFactory```를 직접 사용하는 경우는 거의 없으므로 일반적으로 ```ApplicationContext```를 스프링 컨테이라 한다. 
+
+#### 스프링 컨테이너 생성과정
+
+**1 스프링 컨테이너 생성**
+![스프링 컨테이너 생성](./assets/스프링_컨테이너_생성.png)
+- ```new AnnotationConfigApplicationContext(Appconfig.class)```
+- 스프링 컨테이너를 생성할 때는 구성 정보를 지정해주어야 한다. 
+- 여기서는 ```AppConfig.class```를 구성 정보로 지정했다. 
+**2.스프링 빈 등록**
+  
+![스프링 빈 등록](./assets/스프링_빈_등록)
+- 스프링 컨테이너는 파라미터로 넘어온 설정 클래스 정보를 사용해서 스프링 빈을 등록한다. 
+
+**3.스프링 빈 의존관계 설정 - 준비**
+![스프링 빈 의존관계 설정](./assets/스프링_빈_의존관계_설정)
+
+**4.스프링 빈 의존관계 설정 - 완료**
+![스프링 빈 의존관계 설정](./assets/스프링_빈_의존관계-설정2)
+
+- 스프링 컨테이너는 설정 정보를 참고해서 의존관계(DI)를 주입한다. 
+- 단순히 자바 코드를 호출하는 것 같지만, 차이가 있다. 이 차이는 뒤에 싱글톤 컨테이너에서 설명한다. 
+
+## 컨테이너에 등로된 모든 빈 조회
+스프링 컨테이너에 실제 스프링 빈들이 잘 등록 되었는지 확인해보자. 
+
+```java
+class ApplicationContextInfoTest {
+
+    AnnotationConfigApplicationContext ac = new AnnotationConfigApplicationContext(AppConfig.class);
+
+    @Test
+    @DisplayName("모든 빈 출력하기")
+    void findBean(){
+        String[] beanDefinitionNames = ac.getBeanDefinitionNames();
+        for (String beanDefinitionName : beanDefinitionNames) {
+            Object bean = ac.getBean(beanDefinitionName);
+            System.out.println("name = " + beanDefinitionName + " object=" + bean);
+        }
+    }
+
+    @Test
+    @DisplayName("애플리케이션 빈 출력하기")
+    void findApplicationBean(){
+        String[] beanDefinitionNames = ac.getBeanDefinitionNames();
+        for (String beanDefinitionName : beanDefinitionNames) {
+            BeanDefinition beanDefinition = ac.getBeanDefinition(beanDefinitionName);
+            //Role ROLE_APPLICATION : 직접 등록한 애플리케이션 빈
+            //Role ROLE_INFRASTRUCTURE : 스프링 내부에서 사용하는 빈
+            if(beanDefinition.getRole() == BeanDefinition.ROLE_APPLICATION){
+                Object bean = ac.getBean(beanDefinitionName);
+                System.out.println("name = " + beanDefinitionName + " object=" + bean);
+            }
+        }
+    }
+}
+
+```
+- 모든 빈 출력하기
+  + 실행하면 스프링에 등록된 모든 빈 정보를 출력할 수 있다.
+  + ```ac.getBeanDefinitionNames()``` : 스프링에 등록된 모든 빈 이름을 조회한다.
+  + ```ac.getBean()``` : 빈 이름으로 빈 객체 (인스턴스)를 조회한다.
+  
+- 애플리케이션 빈 출력하기
+  + 스프링이 내부에서 사용하는 빈은 제외하고, 내가 등록한 빈만 출력해보자.
+  + 스프링이 내부에서 사용하는 빈은 ```getRole()```로 구분할 수 있다. 
+    + ```ROLE_APPLICATION``` : 일반적으로 사용자가 정의한 빈 
+    + ```ROLE_INFRASTRUCTURE``` : 스프링이 내부에서 사용하는 빈
+  
+### 스프링 빈 조회 기본
+스프링 컨테이너에서 스프링 빈을 찾는 가장 기본적인 조회 방법
+
+- ```ac.getBean(빈이름, 타입)```
+- ```ac.getBean(타입)```
+- 조회 대상 스프링 빈이 없으면 예외 발생
+  + ```NoSuchBeanDefinitionException: No bean named 'xxxxx' available```
+  
+**예제 코드**
+```java
+public class ApplicationContextBasicFindTest {
+    AnnotationConfigApplicationContext ac = new AnnotationConfigApplicationContext(AppConfig.class);
+
+    @Test
+    @DisplayName("빈 이름으로 조회")
+    void findBeanByName(){
+        MemberService memberService = ac.getBean("memberService", MemberService.class);
+        assertThat(memberService).isInstanceOf(MemberServiceImpl.class);
+    }
+
+    @Test
+    @DisplayName("이름 없이 타입만으로 조회")
+    void findBeanByType(){
+        MemberService memberService = ac.getBean(MemberService.class);
+        assertThat(memberService).isInstanceOf(MemberServiceImpl.class);
+    }
+
+    @Test
+    @DisplayName("구체 타입으로 조회")
+    void findBeanByName2(){
+        MemberService memberService = ac.getBean("memberService", MemberServiceImpl.class);
+        assertThat(memberService).isInstanceOf(MemberServiceImpl.class);
+    }
+
+    @Test
+    @DisplayName("빈 이름으로 조회X")
+    void findBeanByNameX(){
+        assertThrows(NoSuchBeanDefinitionException.class, () ->
+                ac.getBean("xxxxx", MemberService.class));
+    }
+}
+```
+> 참고 : 구체타입으로 조회화 변경시 유연성이 떨어진다.
+
+### 스프링 빈 조회 동일한 타입 둘 이상
+- 타입으로 조회시 같은 타입의 스프링 빈이 둘 이상이면 오류가 발생한다. 이때는 빈 이름을 지정하자.
+- ```ac.getBeanType()```을 사용하면 해당 타입의 모든 빈을 조회한다.
+
+**예제 코드**
+```java
+public class ApplicationContextSameBeanFindTest {
+    AnnotationConfigApplicationContext ac = new AnnotationConfigApplicationContext(SameBeanConfig.class);
+
+    @Test
+    @DisplayName("타입으로 조회시 같은 타입이 둘 이상 있으면, 중복 오류가 발생한다")
+    void findBeanByTypeDuplicate(){
+        assertThrows(NoUniqueBeanDefinitionException.class, () ->
+                ac.getBean(MemberRepository.class));
+    }
+
+    @Test
+    @DisplayName("타입으로 조회시 같은 타입이 둘 이상 있으면, 빈 이름을 지정하면 된다")
+    void findBeanByName(){
+        MemberRepository memberRepository1 = ac.getBean("memberRepository1", MemberRepository.class);
+        assertThat(memberRepository1).isInstanceOf(MemberRepository.class);
+    }
+    @Test
+    @DisplayName("특정 타입을 모두 조회하기")
+    void findAllBeanByType(){
+        Map<String, MemberRepository> beansOfType = ac.getBeansOfType(MemberRepository.class);
+        for (String key : beansOfType.keySet()) {
+            System.out.println("key = " + key + " value = " + beansOfType.get(key));
+        }
+        System.out.println("beanOfType = " + beansOfType);
+        assertThat(beansOfType.size()).isEqualTo(2);
+    }
+
+    @Configuration
+    static class SameBeanConfig{
+        @Bean
+        public MemberRepository memberRepository1(){
+            return new MemoryMemberRepository();
+        }
+
+        @Bean
+        public MemberRepository memberRepository2(){
+            return new MemoryMemberRepository();
+        }
+    }
+}
+```
+
+### 스프링 빈 조회 상속관계
+
+- 부모 타입으로 조회하면, 자식 타입도 함께 조회된다.
+- 그래서 모든 자바 객체의 최고 부모인 ```Object```타입으로 조회하면, 모든 스프링 빈을 조회한다.
+
+![스프링 빈 조회](./assets/스프링_빈_조회)
+
+**예제 코드**
+```java
+public class ApplicationContextExtendsFindTest {
+
+    AnnotationConfigApplicationContext ac = new AnnotationConfigApplicationContext(TestConfig.class);
+
+    @Test
+    @DisplayName("부모 타입으로 조회시, 자식이 둘 이상 있으면, 중복 오류가 발생한다")
+    void findBeanByParentTypeDuplicate(){
+        //DiscountPolicy bean = ac.getBean(DiscountPolicy.class)
+        assertThrows(NoUniqueBeanDefinitionException.class, () ->
+                ac.getBean(DiscountPolicy.class));
+    }
+
+    @Test
+    @DisplayName("부모 타입으로 조회시, 자식이 둘 이상 있으면, 빈 이름을 지정하면 된다.")
+    void findBeanByParentTypeBeanName(){
+        DiscountPolicy rateDiscountPolicy = ac.getBean("rateDiscountPolicy", DiscountPolicy.class);
+        assertThat(rateDiscountPolicy).isInstanceOf(RateDiscountPolicy.class);
+    }
+
+    @Test
+    @DisplayName("특정 하위 타입으로 조회")
+    void findBeanBySubType(){
+        RateDiscountPolicy bean = ac.getBean(RateDiscountPolicy.class);
+        assertThat(bean).isInstanceOf(RateDiscountPolicy.class);
+    }
+
+    @Test
+    @DisplayName("부모 타입으로 모두 조회하기")
+    void findAllBeanByParentType(){
+        Map<String, DiscountPolicy> beansOfType = ac.getBeansOfType(DiscountPolicy.class);
+        assertThat(beansOfType.size()).isEqualTo(2);
+        for (String key : beansOfType.keySet()) {
+            System.out.println("key = " + key + " value = " + beansOfType.get(key));
+        }
+    }
+
+    @Test
+    @DisplayName("부모 타입으로 모두 조회하기 - Object")
+    void findAllBeanByObjectType(){
+        Map<String, Object> beansOfType = ac.getBeansOfType(Object.class);
+        for (String key : beansOfType.keySet()) {
+            System.out.println("key  = " + key + " value = " + beansOfType.get(key));
+        }
+    }
+
+    @Configuration
+    static class TestConfig {
+        @Bean
+        public DiscountPolicy rateDiscountPolicy() {
+            return new RateDiscountPolicy();
+        }
+
+        @Bean
+        public DiscountPolicy fixDiscountPolicy() {
+            return new FixDiscountPolicy();
+        }
+    }
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
