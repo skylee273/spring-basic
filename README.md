@@ -71,7 +71,7 @@
 
 - SRP: 단일 책임 원칙 (single responsibility principle)
   + 한 클래스는 하나의 책임만 가져야 한다.
-  + **즁요한 기준은 변경**이다. 변경이 있을 때 파급 효과가 적으면 단일 책임 원칙을 잘 따른 것 
+  + **요한 기준은 변경**이다. 변경이 있을 때 파급 효과가 적으면 단일 책임 원칙을 잘 따른 것 
 - OCP : 개방-폐쇄 원칙(Open/closed principle)
     + 소프트웨어 요소는 **확장에는 열려** 있느나 변경에는 닫혀 있어야 한다
     + 다형성을 활용해보자.
@@ -263,6 +263,7 @@ public class MemberServiceTest {
         //when
         memberService.join(member);
         Member findMember = memberService.findMember(1L);
+        
         //then
         Assertions.assertThat(member).isEqualTo(findMember);
 
@@ -271,9 +272,11 @@ public class MemberServiceTest {
 ```
 
 **회원 도메인 설계의 문제점**
+
 - 이 코드의 설계상 문제점은 무엇일까?
 - 다른 저장소로 변경할 때 OCP 원칙을 잘 준수할까요? 
 - DIP를 잘 지키고 있을까?
+  
 - **의존관계가 인터페이스 뿐만 아니라 구현까지 모두 의존하는 문제점이 있음**
 
 ### 주문과 할인 도메인 설계
@@ -421,7 +424,11 @@ public class OrderServiceImpl implements OrderService{
 
 ```
 주문 생성 요청이 오면, 회원 정보를 조회하고, 할인 정책을 적용한 다음 주문 객체를 생성해서 반환한다.
-**메모리 회원 리포지토리와, 고정 금액 할인 정책을 구현체로 생성한다.**
+**메모리 회원 리포지토리와, 고정 금액 할인 정책을 구현체로 생성한다.** ```new MemoryMemberRepository()```, ```new FixDiscountPolicy()```
+
+- 즉 DIP 원칙을 위배하고 있다. 추상화에 의존하고 있지만 구체화에 도 의존하고 있기 때문이다.
+- OCP 원칙 또한 위배하고 있다. 만약 정책이 변경되어 ```memoryMemberRepository``` -> ```MysqlRepository```로 변경된다면
+파급 효과가 큼
 
 ### 주문과 할인 도메인 실행과 테스트
 **주문과 할인 정책 실행**
@@ -534,8 +541,8 @@ public class OrderServiceImpl implements OrderService {
 ```
 
 **문제점 발견**
-- 우리는 역할과 구현을 충실히 분리했다 -> OK
-- 다형성도 활용하고, 인터페이스와 구현 객체를 분리했다. -> OK
+- 우리는 역할과 구현을 충실히 분리했다 → OK
+- 다형성도 활용하고, 인터페이스와 구현 객체를 분리했다. → OK
 - OCP, DIP 같은 객체지향 설계 원칙을 충실히 준수했다. 
   + 그렇게 보이지만 사실 아니다.
 - DIP : 주문서비스 클라이언트 ```OrderServiceImpl```는  ```DiscountPolicy``` 인터페이스에 의존하면서 
