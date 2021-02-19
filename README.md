@@ -1378,15 +1378,270 @@ class Test{
 - 결론적으로 유연성이 떨어진다.
 - 안티패턴으로 불리기도 한다.
 
+### 싱글톤 컨테이너 
+
+스프링 컨테이너는 싱글톤 패턴의 문제점을 해결하면서, 객체 인스턴스를 싱글톤(1개만 생성)으로 관리한다.
+
+**싱글톤 컨테이너**
+- 스프링 컨테이너는 싱글톤 패턴을 적용하지 않아도, 객체 인스턴스를 싱글톤으로 관리한다.
+- 스프링 컨테이너는 싱글톤 컨테이너 역할을 한다. 이렇게 싱글톤 객체를 생성하고 관리하는 기능을 싱글톤 레지스트리라 한다.
+- 스프링 컨테이너의 이런 기능 덕분에 싱글톤 패턴의 모든 단점을 해결하면서 객체를 싱글톤으로 유지할 수 있다.
+  + 싱글톤 패턴을 위한 지저분한 코드가 들어가지 않아도 된다. 
+  + DIP, OCP, 테스트, private 생성자로부터 자유롭게 싱글톤을 사용할 수 있다. 
+  
+**스프링 컨테이너를 사용하는 테스트 코드**
+```java
+class Test{
+  @Test
+  @DisplayName("스프링 컨테이너와 싱글톤")
+  void springContainer() {
+
+    ApplicationContext ac = new AnnotationConfigApplicationContext(AppConfig.class);
+
+    //1. 조회: 호출할 때 마다 객체를 생성
+    MemberService memberService1 = ac.getBean("memberService", MemberService.class);
+    MemberService memberService2 = ac.getBean("memberService", MemberService.class);
+
+    //참조값이 다른 것을 확인
+    System.out.println("memberService1 = " + memberService1);
+    System.out.println("memberService2 = " + memberService2);
+
+    //memberService != memberService2
+    assertThat(memberService1).isSameAs(memberService2);
+
+  }
+}
+```
+
+**싱글톤 컨테이너 적용 후**
+
+![싱클톤 컨테이너 적용 후](./assets/spring_container)
+
+- 스프링 컨테이너 덕분에 고객의 요청이 올 때 마다 객체를 생성하는 것이 아니라, 이미 만들어진 객체를 공유해서 
+효율적으로 재사용할 수 있다. 
+  
+> 참고 : 스프링의 기본 빈 등록 방식은 싱글톤이지만, 싱글톤 방식만 지원하는 것은 아니다. 요청할 때 마다 새로운 
+> 객체를 생성해서 반환하는 기능도 제공한다. 
+
+### 싱글톤 방식의 문제점 
+
+- 싱글톤 패턴이든, 스프링 같은 싱글톤 컨테이너를 사용하든, 객체 인스턴스를 하나만 생성해서 공유하는 싱
+글톤 방식은 여러 클라이언트가 하나의 같은 객체 인스턴스를 공유하기 때문에 싱글톤 객체는 상태를 유지(stateful)하게
+설계 하면 안된다.
+  
+- 무상태(stateless)로 설계해야 한다!
+  + 특정 클라이언트에 의존적인 필드가 있으면 안된다.
+  + 특정 클라이언가 값을 변경할 수 있는 필드가 있으면 안된다.
+  + 가급적 읽기만 가능해야 한다.
+  + 필드 대신에 자바에서 공유되지 않는, 지역변수, 파라미터, ThreadLocal 등을 사용해야 한다.
+  
+- 스프링 빈의 필드에 공유 값을 설정하면 정말 큰 장애가 발생할 수 있다!!!
+
+**상태를 유지할 경우 발생하는 문제점 예시**
+```java
+public class StatefulService {
+
+    private int price; // 상태를 유지하는 필드
+
+    public void order(String name, int price){
+        System.out.println("name = " + name + " price = " + price);
+        this.price = price; // 여기가 문제!
+    }
+
+    public int getPrice(){
+        return price;
+    }
+}
+```
+
+**상태를 유지할 경우 발생하는 문제점 예시**
+```java
+class StatefulServiceTest {
+
+    @Test
+    void statefulServiceSingleton(){
+        AnnotationConfigApplicationContext ac = new AnnotationConfigApplicationContext(TestConfig.class);
+        StatefulService statefulService1 = ac.getBean(StatefulService.class);
+        StatefulService statefulService2 = ac.getBean(StatefulService.class);
+
+        //ThreadA : A 사용자 10000원 주문
+        statefulService1.order("userA", 10000);
+        //ThreadB : B 사용자 20000원 주문
+        statefulService2.order("userB", 20000);
+        //ThreadA : 사용자 A 주문 금액 조회
+        int price = statefulService1.getPrice();
+        System.out.println("price = " + price);
+
+        assertThat(statefulService1.getPrice()).isEqualTo(20000);
+
+    }
+
+    static class TestConfig{
+        @Bean
+        public StatefulService statefulService(){
+          return new StatefulService();
+        };
+    }
+}
+```
+- 최대한 단순히 설명하기 위해, 실제 쓰레드는 사용하지 않는다.
+- ThreadA가 사용자A 코드를 호출하고 ThreadB가 사용자B 코드를 호출한다고 가정
+- ```StatefulService```의 ```price``` 필드는 공유되는 필드인데, 특정 클라이언트가 값을 변경한다.
+- 사용자A의 주문금액은 10000원이 되어야 하는데, 20000원이라는 결과가 나왔다.
+- 실무에서 이런 경우를 종종 보는데, 이로인해 정말 해결하기 어려운 큰 문제들이 터짐 
+- 진짜 공유필드는 조심해야 한다! 스프링 빈은 항상 무상태(stateless)로 설계하자
 
 
+### @Configuration과 싱글톤
+```java
+@Configuration
+public class AppConfig {
 
+    //@Bean memberService() -> new MemoryMemberRepository()
+    //@Bean orderService() -> new MemoryMemberRepository()
 
+    @Bean
+    public MemberService memberService(){
+        System.out.println("call AppConfig.memberService");
+        return new MemberServiceImpl(memberRepository());
+    }
 
+    @Bean
+    public MemoryMemberRepository memberRepository() {
+        System.out.println("call AppConfig.memberRepository");
+        return new MemoryMemberRepository();
+    }
 
+    @Bean
+    public OrderService orderService(){
+        System.out.println("call AppConfig.orderService");
+        return new OrderServiceImpl(memberRepository(), discountPolicy());
+    }
 
+    @Bean
+    public FixDiscountPolicy discountPolicy() {
+        return new FixDiscountPolicy();
+    }
 
+}
 
+```
+
+- memberService 빈을 만드는 코드를 보면 ```memberRepository()```를 호출한다. 
+    + 이 메서드를 호출하면 new ```MemoryMemberRepository()```를 호출한다. 
+- orderService 빈을 만드는 코드도 동일하게 ```memberRepository()```를 호출한다. 
+    + 이 메서드를 호출하면 ```new MemoryMemberRepository()```를 호출한다.
+      
+
+결과적으로 각각 다른 2개의 ```MemoryMemberRepository```가 생성되면서 싱글톤이 깨지는 것 
+처럼 보인다. 스프링 컨테이너는 이 문제를 어떻게 해결할까?
+
+**검증 용도의 코드 추가**
+
+```java
+public class MemberServiceImpl implements MemberService {
+      private final MemberRepository memberRepository;
+      //테스트 용도
+      public MemberRepository getMemberRepository() {
+          return memberRepository;
+      }
+}
+  
+public class OrderServiceImpl implements OrderService {
+      private final MemberRepository memberRepository;
+      //테스트 용도
+      public MemberRepository getMemberRepository() {
+          return memberRepository;
+      }
+}
+```
+
+```java
+public class ConfigurationSingletonTest {
+
+    @Test
+    void configurationTest(){
+
+        ApplicationContext ac = new AnnotationConfigApplicationContext(AppConfig.class);
+
+        MemberServiceImpl memberService = ac.getBean("memberService", MemberServiceImpl.class);
+        OrderServiceImpl orderService = ac.getBean("orderService", OrderServiceImpl.class);
+
+        MemberRepository memberRepository = ac.getBean("memberRepository", MemberRepository.class);
+
+        MemberRepository memberRepository1 = memberService.getMemberRepository();
+        MemberRepository memberRepository2 = memberService.getMemberRepository();
+
+        System.out.println("memberService  -> memberRepository = " + memberRepository1);
+        System.out.println("orderService -> memberRepository = " + memberRepository2);
+        System.out.println("memberRepository = " + memberRepository);
+
+        assertThat(memberService.getMemberRepository()).isSameAs(memberRepository);
+        assertThat(orderService.getMemberRepository()).isSameAs(memberRepository);
+    }
+
+    @Test
+    void configurationDeep(){
+        AnnotationConfigApplicationContext ac = new AnnotationConfigApplicationContext(AppConfig.class);
+        AppConfig bean = ac.getBean(AppConfig.class);
+        System.out.println("bean = " + bean.getClass());
+    }
+}
+```
+
+- 확인해보면 memberRepository 인스턴스는 모두 같은 인스턴스가 공유되어 사용
+- AppConfig의 자바 코드를 보면 분명 각각 2번 ```new MemoryMemberRepository```호출해서 다른 인스턴스가
+생성되야 하는데?
+- 어떻게 된 일일까? 혹시 두 번 호출이 안되는 것일까? 실험을 통해서 알아보자.
+
+**AppConfig에 호출 로그 남김**
+
+```java
+@Configuration
+public class AppConfig {
+
+    //@Bean memberService() -> new MemoryMemberRepository()
+    //@Bean orderService() -> new MemoryMemberRepository()
+
+    @Bean
+    public MemberService memberService(){
+        System.out.println("call AppConfig.memberService");
+        return new MemberServiceImpl(memberRepository());
+    }
+
+    @Bean
+    public MemoryMemberRepository memberRepository() {
+        System.out.println("call AppConfig.memberRepository");
+        return new MemoryMemberRepository();
+    }
+
+    @Bean
+    public OrderService orderService(){
+        System.out.println("call AppConfig.orderService");
+        return new OrderServiceImpl(memberRepository(), discountPolicy());
+    }
+
+    @Bean
+    public FixDiscountPolicy discountPolicy() {
+        return new FixDiscountPolicy();
+    }
+
+}
+```
+
+- 스프링 컨테이너가 각각 @Bean을 호출해서 스프링 빈을 생성한다. 그래서 ```memberRepository()``` 
+  는 다음 과 같이 총 3번이 호출되어야 하는 것 아닐까?
+
+- 1. 스프링 컨테이너가 스프링 빈에 등록하기 위해 @Bean이 붙어있는 ```memberRepository()``` 호출
+- 2. memberService() 로직에서 ```memberRepository()``` 호출
+- 3. orderService() 로직에서 ```memberRepository()``` 호출
+
+그런데 출력결과는 모두 한번만 호출
+```
+call AppConfig.memberService
+call AppConfig.memberRepository
+call AppConfig.orderService
+```
 
 
 
