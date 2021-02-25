@@ -1644,14 +1644,315 @@ call AppConfig.memberRepository
 call AppConfig.orderService
 ```
 
+### @Configuration과 바이트코드 조작의 마
 
+스프링 컨테이너는 싱글톤 레지스트리다. 따라서 스프링 빈이 싱글톤이 되도록 보장해주어야 한다. 그런데
+스프링이 자바 코드까지 어떻게 하기는 어렵다. 자바 코드를 보면 분명 3번 호출되어야 하는 것이 맞다.
+그래서 스프링은 클래스의 바이트코드를 조작하는 라이브러리를 사용한다. 
 
+모든 비밀은 ```Configuration```을 적용한 ```AppConfig```에 있다.
 
+Code
+```java
+public class ConfigurationSingletonTest {
+  @Test
+  void configurationDeep(){
+    AnnotationConfigApplicationContext ac = new AnnotationConfigApplicationContext(AppConfig.class);
+    AppConfig bean = ac.getBean(AppConfig.class);
+    System.out.println("bean = " + bean.getClass());
+  }
+}
+```
 
+- 사실 ```AnnotationConfigApplicationContext```에 파라미터로 넘긴 값은 스프링 빈으로 등록된다. 
+그래서 ```AppConfig```도 스프링 빈이 된다.
+  
+- ```AppConfig```스프링 빈을 조회해서 클래스 정보를 출력해보자
+```
+bean = class hello.core.AppConfig$$EnhancerBySpringCGLIB$$bd479d70
+```
+순수한 클래스라면 다음과 같이 출력되어야 한다.
 
+```class hello.core.AppConfig```
 
+그런데 예상과는 다르게 클래스 명에 xxxCGLIB가 붙으면서 상당히 복잡해진 것을 볼 수 있다.
+이것은 내가 만든 클래스가 아니라 스프링이 CGLIB라는 바이트코드 조작 라이브러리를 사용해서
+AppConfig 클래스 를 상속받은 임의의 다른 클래스를 만들고, 그 다른 클래스를 스프링 빈으로
+등록한 것이다!
 
+그림
+![스프링_바이트코드_조작](./assets/spring_AppConfig)
 
+그 임의의 다른 클래스가 바로 싱글톤이 보장되도록 해준다. 아마도 다음과 같이 바이트 코드를 조작해서
+작성이 되어 있을 것이다.
 
+**AppConfig@CGLB 예상 코드**
 
+![바이트코드](./assets/바이트코드조작)
+
+- @Bean이 붙은 메서드마다 이미 스프링빈이 존재하면 존재하는 빈을 반환하고, 스프링 빈이 없으면
+생성해서 스프링 빈으로 등록하고 반환하는 코드가 동적으로 만들어진다.
+  
+- 덕분에 싱글톤이 보장되는 것이다.
+
+>  참고 AppConfig@CGLIB 는 AppConfig 자식 타입으로, AppConfig 타입으로 조회할 수 있다.
+
+**```@Configuration```을 적용하지 않고, ```@Bean```만 적용하면 어떻게 될까?**
+
+```@Configuration```을 붙이면 바이트코드를 조작하는 CGLIB 기술을 사용해서 싱글톤을 보장하지만, 
+만약 @Bean만 적용하면 어떻게 될까?
+
+```java
+//@Configuration 삭제 
+public class AppConfig {
+
+}
+```
+```bean = class hello.core.AppConfig```
+
+이 출력결과를 통해서 AppConfig가 CGLB 기술 없이 순수한 AppConfig로 스프링 빈에 등록된 것을
+확인할 수 있다.
+
+```
+call AppConfig.memberService
+call AppConfig.memberRepository
+call AppConfig.orderService
+call AppConfig.memberRepository
+call AppConfig.memberRepository
+```
+
+이 출력 결과를 통해서 MemberRepository가 총 3번 호출된 것을 알 수 있다. 1번은 @Bean에 의해 스
+프링 컨테이너에 등록하기 위해서이고, 2번은 각각 ```memberRepository()``` 를 호출하면서 발생한 코드다.
+
+**인스턴스가 같은지 테스트 결과**
+```
+memberService -> memberRepository =
+hello.core.member.MemoryMemberRepository@6239aba6
+orderService -> memberRepository  =
+hello.core.member.MemoryMemberRepository@3e6104fc
+memberRepository = hello.core.member.MemoryMemberRepository@12359a82
+```
+당연히 인스턴스가 같은지 테스트 하는 코드도 실패하고, 각각 다 다른 MemoryMemberRepository
+인스턴스를 가지고 있다.
+
+## 컴포넌트 스캔
+
+### 목차
+
+[6. 컴포넌트 스캔 - 컴포넌트 스캔과 의존관계 자동 주입 시작하기](#컴포넌트-스캔과-의존관계-자동-주입-시작하기) 
+
+[6. 컴포넌트 스캔 - 탐색 위치와 기본 스캔 대상](#탐색-위치와-기본-스캔-대상)
+
+[6. 컴포넌트 스캔 - 필터](#필터)
+
+[6. 컴포넌트 스캔 - 중복 등록과 충돌](#중복-등록과-충돌)
+
+**컴포넌트 스캔과 의존관계 자동 주입 시작하기**
+
+- 지금까지 스프링 빈을 등록할 때는 자바 코드의 @Bean이나 XML의 <bean> 등을 통해서 설정 정보에
+직접 등록할 스프링 빈을 나열했다.
+  
+- 예제에서는 몇개가 안되었지만, 이렇게 등록해야 할 스프링 빈이 수십, 수백개가 되면 일일이 등록하기도 귀 
+찮고, 설정 정보도 커지고, 누락하는 문제도 발생한다. 역시 개발자는 반복을 싫어한다.
+
+- 그래서 스프링은 설정 정보가 없어도 자동으로 스프링 빈을 등록하는 컴포넌트 스캔이라는 기능을
+제공한다.
+  
+- 또 의존관계도 자동으로 주입하는 ```@Autowired```라는 기능도 제공한다.
+
+코드로 컴포넌트 스캔과 의존관계 자동 주입을 알아보자.
+
+**AutoAppConfig.java**
+```java
+package basic.core;
+
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.FilterType;
+
+@Configuration
+@ComponentScan(
+        excludeFilters= @ComponentScan.Filter(type = FilterType.ANNOTATION, classes = Configuration.class)
+)
+public class AutoAppConfig {
+
+}
+```
+
+- 컴포넌트 스캔을 사용하려면 먼저 ```@ComponentScan```을 설정 정보에 붙여주면 된다.
+- 기존의 AppConfig와는 다르게 @Bean으로 등록한 클래스가 하나도 없다.
+
+컴포넌트 스캔은 이름 그대로 ```@Component``` 애노테이션이 붙은 클래스를 스캔해서 스프링 빈으로 등록한 다. ```@Component``` 를 붙여주자.
+
+> **참고**: ```@Configuration``` 이 컴포넌트 스캔의 대상이 된 이유도 ```@Configuration``` 소스코드를 열어보면
+> ```@Component``` 애노테이션이 붙어있기 때문이다.
+
+이제 각 클래스가 컴포넌트 스캔의 대상이 되도록 ```@Component```애노테이션을 붙여주자.
+
+**MemoryMemberRepository @Component 추가**
+
+```java
+   @Component
+  public class MemoryMemberRepository implements MemberRepository {}
+```
+
+**RateDiscountPolicy @Component추가**
+```java
+@Component
+  public class RateDiscountPolicy implements DiscountPolicy {}
+```
+
+**MemberServiceImpl @Component @Autowired 추가**
+```java
+@Component
+  public class MemberServiceImpl implements MemberService {
+      private final MemberRepository memberRepository;
+      @Autowired
+      public MemberServiceImpl(MemberRepository memberRepository) {
+          this.memberRepository = memberRepository;
+      }
+}
+```
+- 이전에 AppConfig에서는 ```@Bean```으로 직접 설정 정보를 작성했고, 의존관계도 직접 명시했다.
+이제는 이런 설정 정보 자체가 없기 때문에, 의존관계 주입도 이 클래스 안에서 해결해야 한다.
+  
+- @Autowired는 의존관계를 자동으로 주입해준다. 자세한 룰은 뒤에서 설명한다.
+
+**OrderServiceImpl @Component, @Autowired 추가**
+```java
+@Component
+public class OrderServiceImpl implements OrderService{
+
+    private final MemberRepository memberRepository;
+    private final DiscountPolicy discountPolicy;
+
+    @Autowired
+    public OrderServiceImpl(MemberRepository memberRepository, DiscountPolicy discountPolicy) {
+        this.memberRepository = memberRepository;
+        this.discountPolicy = discountPolicy;
+    }
+
+    @Override
+    public Order createOrder(Long memberId, String itemName, int itemPrice) {
+        Member member = memberRepository.findById(memberId);
+        int discountPrice = discountPolicy.discount(member, itemPrice);
+        return new Order(memberId, itemName, itemPrice, discountPrice);
+    }
+
+    // 테스트 용도
+    public MemberRepository getMemberRepository() {
+        return memberRepository;
+    }
+}
+```
+- @Autowired를 사용하면 생성자에 여러 의존관계도 한번에 주입받을 수 있다.
+
+**AutoAppConfigTest**
+
+```java
+public class AutoAppConfigTest {
+
+    @Test
+    void basicScan(){
+        AnnotationConfigApplicationContext ac = new AnnotationConfigApplicationContext(AutoAppConfig.class);
+
+        MemberService memberService = ac.getBean(MemberService.class);
+        Assertions.assertThat(memberService).isInstanceOf(MemberService.class);
+    }
+}
+```
+
+- ```AnnotationConfigApplicationContext```를 사용하는 것은 기존과 동일하다.
+- 설정 정보로 ```AutoAppConfig```클래스를 넘겨준다.
+- 실행해보면 기존과 같이 잘 동작하는 것을 확인할 수 있다.
+
+로그를 잘 보면 컴포넌트 스캔이 잘 동작하는 것을 확인할 수 있다.
+```
+ ClassPathBeanDefinitionScanner - Identified candidate component class:
+.. RateDiscountPolicy.class
+.. MemberServiceImpl.class
+.. MemoryMemberRepository.class
+.. OrderServiceImpl.class
+
+```
+
+컴포넌트 스캔과 자동 의존관계 주입이 어떻게 동작하는지 그림으로 알아보자.
+
+**1.@ComponentScan**
+
+![컴포넌트 스캔](./assets/ComponentScan)
+
+- ```@ComponentScan```은 ```@Component```가 붙은 모든 클래스를 스프링 빈으로 등록한다.
+- 이때 스프링 빈의 기본 이름은 클래스명을 사용하되 맨 앞글자만 소문자를 사용한다.
+  + **빈 이름 기본 전략:** MemberServiceImpl 클래스 → memberServiceImpl
+  + **빈 이름 직접 지정:** 만약 스프링 빈의 이름을 직접 지정하고 싶으면 ```@Component("memberService2")```
+  이런식으로 이름을 부여하면 된다.
+
+**2.@Autowired 의존관계 자동 주입**
+
+![Autowired](./assets/Autowired)
+
+- 생성자에 ```@AutoWired```를 지정하면, 스프링 컨테이너가 자동으로 해당 스프링 빈을 찾아서 주입한다.
+- 이때 기본 조회 전략은 타입이 같은 빈을 찾아서 주입한다.
+  + ```getBean(MemberRepository.class)```와 동일하다고 이해하면 된다.
+  
+![Autowired](./assets/Autowired2)
+
+### 탐색 위치와 기본 스캔 대상 
+
+**탐색할 패키지의 시작 위치 지정**
+
+모든 자바 클래스를 다 컴포넌트 스캔하면 시간이 오래 걸린다. 그래서 꼭 필요한 위치부터 탐색하도록
+시작 위치를 지정할 수 있다.
+
+```
+@ComponentScan(
+          basePackages = "hello.core",
+}
+```
+
+- ```basePackages:``` 탐색할 패키지의 시작위치를 지정한다. 이 패키지를 포함해서 하위 패키지를 모두 탐색한다.
+  + ```basePackages = {"hello.core", "hello.service"}```이렇게 여러 시작 위치를 지정할 수도 있다.
+  
+- ```basePackageClasses``` 지정한 클래스의 패키지를 탐색 시작 위치로 지정한다.
+- 만약 지정하지 않으면 ```@ComponentScan```이 붙은 설정 정보 클래스의 패키지가 시작 위치가 된다.
+
+**권장하는 방법**
+
+개인적으로 즐겨 사용하는 방법은 패키지 위치를 지정하지 않고, 설정 정보 클래스의 위치를 프로젝트 최상단에 둠
+
+**컴포넌트 스캔 기본 대상**
+
+컴포넌트 스캔은 ```@Component```뿐만 아니라 다음과 내용도 추가로 대상에 포함한다.
+- ```@Component :``` 컴포넌트 스캔에서 사용
+- ```@Controller :``` 스프링 MVC 컨트롤러에서 사용
+- ```@Service :``` 스프링 비즈니스 로직에서 사용
+- ```@Repository :``` 스프링 데이터 접근계층에서 사용
+- ```@Configuration :``` 스프링 설정 정보에서 사용
+
+해당 클래스의 소스 코드를 보면 ```@Component```를 포함하고 있는 것 을 알 수 있다. 
+
+```
+@Component
+public @interface Controller {
+    }
+@Component
+public @interface Service {
+    }
+@Component
+public @interface Configuration {
+    }
+```
+
+> 참고 : 사실 에노테이션에는 상속관계라는 것이 없다. 그래서 이렇게 애노테이션이 특정 애노테이션을 들고
+> 있는 것을 인식할 수 있는 것은 자바 언어가 지원하는 기능은 아니고, 스프링이 지원하 기능이다.
+
+컴포넌트 스캔의 용도 뿐만 아니라 다음 애노테이션이 있으면 스프링 부가 기능을 수행한다. 
+- ```@Controller:``` 스프링 MVC 컨트롤러로 인식
+- ```@Repository:``` 스프링 데이터 접근 계층으로 인식하고, 데이터 계층의 예외를 스프링 예외로 변환해준다.
+- ```@Configuration:``` 앞서 보았듯이 스프링 설정 정보로 인식하고, 스프링 빈이 싱글톤을 유지하도록 추가 처리를 한다.
+- ```Service:``` 사실 ```@Service```는 특별한 처리를 하지 않는다. 대신 개발자들이 핵심 비즈니스 로직이 여기에 있겠구나 라고
+비즈니스 계층을 인식하는데 도움이 된다.
+  
+> 참고: ```useDefaultFilters```은 기본으로 켜져있는데, 이 옵션을 끄면 기본 스캔 대상들이 제외된다.
 
